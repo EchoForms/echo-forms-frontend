@@ -24,7 +24,7 @@ export default function LandingPage() {
   const handleFeedbackSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     // Mock submission - in real app, send to backend
-    alert("Thank you for your feedback! We'll be in touch soon. This is purely for feedback purpose :)")
+    alert("Thank you for your feedback! We'll be in touch soon.")
     setFeedbackForm({
       name: "",
       role: "",
