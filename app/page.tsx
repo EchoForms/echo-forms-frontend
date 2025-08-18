@@ -18,6 +18,15 @@ export default function LandingPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
 
+  // Move ALL hooks here, before any return!
+  const [feedbackForm, setFeedbackForm] = useState({
+    name: "",
+    role: "",
+    otherRole: "",
+    feedback: "",
+    phone: "",
+  });
+
   useEffect(() => {
     const token = Cookies.get("auth_token");
     if (token) {
@@ -34,14 +43,6 @@ export default function LandingPage() {
       </div>
     );
   }
-
-  const [feedbackForm, setFeedbackForm] = useState({
-    name: "",
-    role: "",
-    otherRole: "",
-    feedback: "",
-    phone: "",
-  })
 
   const handleFeedbackSubmit = (e: React.FormEvent) => {
     e.preventDefault()

@@ -9,17 +9,26 @@ import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { fetchCurrentUser } from "@/lib/api/users";
 import { fetchForms, deleteForm } from "@/lib/api/forms";
+import Cookies from "js-cookie";
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
     const [user, setUser] = useState<{ name?: string } | null>(null);
     const [forms, setForms] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const router = useRouter();
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<number | null>(null);
+
     useEffect(() => {
         fetchCurrentUser().then(setUser).catch(() => setUser(null));
         fetchForms().then(setForms).finally(() => setLoading(false));
     }, []);
+
+    const handleLogout = () => {
+        Cookies.remove("auth_token");
+        router.replace("/");
+    };
 
     const handleCopyLink = (form_unique_id: string) => {
         navigator.clipboard.writeText(`${window.location.origin}/forms/${form_unique_id}`);
@@ -57,9 +66,22 @@ export default function DashboardPage() {
                                     <span className="text-lg font-semibold text-slate-700">Hi, {user.name}!</span>
                                 )}
                             </div>
-                            <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center">
-                                <span className="text-sm font-medium text-slate-600">JD</span>
-                            </div>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center cursor-pointer shadow-lg border-2 border-white">
+                                        <span className="text-lg font-bold text-white">
+                                            {user?.name
+                                                ? user.name.split(" ").length > 1
+                                                    ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase()
+                                                    : user.name.charAt(0).toUpperCase()
+                                                : "?"}
+                                        </span>
+                                    </div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem className="cursor-pointer" onClick={handleLogout}>Logout</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                     </div>
                 </div>
