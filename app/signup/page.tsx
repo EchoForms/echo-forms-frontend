@@ -131,7 +131,7 @@ export default function SignUpPage() {
             </div>
 
             <Button
-              onClick={handleGoogleSignUp}
+              onClick={() => window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/users/auth/google/login`}
               variant="outline"
               className="w-full border-slate-200 hover:bg-slate-50 py-2.5 bg-transparent"
             >

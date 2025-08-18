@@ -9,14 +9,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Mic, Plus, Trash2, ArrowLeft, Eye, Share, ChevronRight } from "lucide-react"
+import { Mic, Plus, Trash2, ArrowLeft, Eye, Share, ChevronRight, Check } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { createForm } from "@/lib/api/forms";
 
 interface Question {
   id: string
   text: string
   required: boolean
+  options?: any
 }
 
 export default function CreateFormPage() {
@@ -27,8 +29,12 @@ export default function CreateFormPage() {
     language: "",
   })
   const [questions, setQuestions] = useState<Question[]>([{ id: "1", text: "", required: false }])
+  const [publishedId, setPublishedId] = useState("");
   const [publishedLink, setPublishedLink] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
+  const [copied, setCopied] = useState(false);
 
   const addQuestion = () => {
     const newQuestion: Question = {
@@ -49,12 +55,41 @@ export default function CreateFormPage() {
     setQuestions(questions.map((q) => (q.id === id ? { ...q, [field]: value } : q)))
   }
 
-  const handlePublish = () => {
-    // Generate mock link
-    const mockId = Math.random().toString(36).substring(2, 8)
-    setPublishedLink(`https://yourechoform.io/s/${mockId}`)
-    setCurrentStep(4)
+  const handlePublish = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const fields = questions.map(q => {
+        const field: any = {
+          question: q.text,
+          required: q.required,
+        };
+        // Only include options if present in the question object
+        if (q.options) field.options = q.options;
+        return field;
+      });
+      const res = await createForm({
+        title: formData.title,
+        description: formData.description,
+        language: formData.language,
+        status: "active",
+        fields,
+      });
+      setPublishedId(res.form_unique_id);
+      setPublishedLink(`${window.location.origin}/forms/${res.form_unique_id}`);
+      setCurrentStep(4);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Failed to create form");
+    } finally {
+      setLoading(false);
+    }
   }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(publishedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const steps = [
     { number: 1, title: "Form Details", description: "Basic information" },
@@ -151,7 +186,7 @@ export default function CreateFormPage() {
                   <Button
                     onClick={() => setCurrentStep(2)}
                     disabled={!formData.title.trim()}
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 cursor-pointer"
                   >
                     Next: Select Language
                   </Button>
@@ -197,7 +232,7 @@ export default function CreateFormPage() {
                   <Button
                     onClick={() => setCurrentStep(3)}
                     disabled={!formData.language}
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 cursor-pointer"
                   >
                     Next: Add Questions
                   </Button>
@@ -223,7 +258,7 @@ export default function CreateFormPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => removeQuestion(question.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -258,7 +293,7 @@ export default function CreateFormPage() {
                 <Button
                   variant="outline"
                   onClick={addQuestion}
-                  className="w-full border-dashed border-slate-300 hover:border-slate-400 bg-transparent"
+                  className="w-full border-dashed border-slate-300 hover:border-slate-400 bg-transparent cursor-pointer"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Another Question
@@ -271,7 +306,7 @@ export default function CreateFormPage() {
                   <Button
                     onClick={() => setCurrentStep(4)}
                     disabled={questions.some((q) => !q.text.trim())}
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 cursor-pointer"
                   >
                     Preview & Publish
                   </Button>
@@ -333,12 +368,13 @@ export default function CreateFormPage() {
                 </Button>
                 <Button
                   onClick={handlePublish}
-                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                  disabled={loading}
+                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 cursor-pointer"
                 >
-                  <Share className="w-4 h-4 mr-2" />
-                  Publish Form
+                  {loading ? "Publishing..." : "Publish Form"}
                 </Button>
               </div>
+              {error && <p className="text-red-500 text-sm">{error}</p>}
             </div>
           )}
 
@@ -357,21 +393,20 @@ export default function CreateFormPage() {
                   <Label className="text-sm font-medium text-slate-700 mb-2 block">Share this link:</Label>
                   <div className="flex items-center space-x-2">
                     <Input value={publishedLink} readOnly className="bg-white" />
-                    <Button variant="outline" onClick={() => navigator.clipboard.writeText(publishedLink)}>
-                      Copy
+                    <Button variant="outline" className="cursor-pointer" onClick={handleCopy}>
+                      {copied ? <><Check className="w-4 h-4 mr-1 text-green-600" />Copied!</> : "Copy"}
                     </Button>
                   </div>
                 </div>
-
-                <div className="flex justify-center space-x-4">
-                  <Link href="/dashboard">
-                    <Button variant="outline">Back to Dashboard</Button>
+                <div className="flex flex-col items-center space-y-2">
+                  <span className="text-slate-500 text-sm">Want to see analytics and manage your form?</span>
+                  <Link href={`/dashboard/forms/${publishedId}`}>
+                    <Button variant="secondary" className="cursor-pointer">Go to Form Analytics & Details (dummy)</Button>
                   </Link>
-                  <Link href={`/form/${publishedLink.split("/").pop()}`}>
-                    <Button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
-                      <Eye className="w-4 h-4 mr-2" />
-                      View Live Form
-                    </Button>
+                </div>
+                <div className="flex justify-center space-x-4 mt-4">
+                  <Link href="/dashboard">
+                    <Button variant="outline" className="cursor-pointer">Back to Dashboard</Button>
                   </Link>
                 </div>
               </CardContent>
