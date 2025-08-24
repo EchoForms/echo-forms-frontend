@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
@@ -119,5 +120,45 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Header Typography */
+  .header-brand {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    font-style: normal;
+    color: rgb(0, 0, 0);
+    line-height: 1.4;
+  }
+  
+  .header-greeting {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-style: normal;
+    color: rgb(0, 0, 0);
+    line-height: 1.5;
+  }
+  
+  .header-user {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-style: normal;
+    color: rgb(255, 255, 255);
+    line-height: 1.4;
+  }
+  
+  .header-menu {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    font-style: normal;
+    color: rgb(0, 0, 0);
+    line-height: 1.5;
+  }
+  
+  /* Dashboard Stats Labels */
+  .dashboard-stats-label {
+    max-width: 120px;
+    word-wrap: break-word;
+    line-height: 1.2;
   }
 }

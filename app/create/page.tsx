@@ -59,10 +59,11 @@ export default function CreateFormPage() {
     setLoading(true);
     setError("");
     try {
-      const fields = questions.map(q => {
+      const fields = questions.map((q, index) => {
         const field: any = {
           question: q.text,
           required: q.required,
+          question_number: index + 1,
         };
         // Only include options if present in the question object
         if (q.options) field.options = q.options;

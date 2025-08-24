@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,9 +8,12 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Mic, ArrowLeft, Download, Share, Play, Calendar, Users, Clock, TrendingUp, MessageSquare, Search } from 'lucide-react'
+import { Mic, ArrowLeft, Download, Share, Play, Calendar, Users, Clock, TrendingUp, MessageSquare, Search, Pause, Globe, LinkIcon, Check } from 'lucide-react'
 import Link from "next/link"
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line } from "recharts"
+import { fetchFormResults, fetchFormResponses } from "@/lib/api/forms"
+import AudioPlayer from "react-h5-audio-player"
+import "react-h5-audio-player/lib/styles.css"
 
 // Mock data for results
 const mockResults = {
@@ -212,11 +215,65 @@ const mockResults = {
   ]
 }
 
-export default function ResultsPage({ params }: { params: { id: string } }) {
+export default function ResultsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = React.use(params) as { id: string };
+  
   const [selectedQuestion, setSelectedQuestion] = useState<string>("all")
   const [searchKeyword, setSearchKeyword] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState<any>(null)
+  const [copiedLink, setCopiedLink] = useState(false)
   const responsesPerPage = 5
+  
+  // Real data state
+  const [formResults, setFormResults] = useState<any>(null)
+  const [formResponses, setFormResponses] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  
+  // Fetch form results on component mount
+  useEffect(() => {
+    const loadFormData = async () => {
+      try {
+        setLoading(true)
+        const results = await fetchFormResults(Number(id))
+        setFormResults(results)
+        
+        // Load initial responses
+        const responses = await fetchFormResponses(Number(id), 1, responsesPerPage)
+        setFormResponses(responses.responses)
+        setPagination(responses.pagination)
+      } catch (error) {
+        console.error('Failed to load form data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadFormData()
+  }, [id])
+  
+  // Load responses when filters change
+  const loadResponses = async (page: number = 1) => {
+    try {
+      const responses = await fetchFormResponses(
+        Number(id), 
+        page, 
+        responsesPerPage, 
+        selectedQuestion, 
+        searchKeyword
+      )
+      setFormResponses(responses.responses)
+      setPagination(responses.pagination)
+      setCurrentPage(page)
+    } catch (error) {
+      console.error('Failed to load responses:', error)
+    }
+  }
+  
+  // Handle search and filter changes
+  useEffect(() => {
+    loadResponses(1)
+  }, [selectedQuestion, searchKeyword])
 
   const getHeatmapColor = (value: number) => {
     const intensity = Math.min(value / 25, 1)
@@ -242,7 +299,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const paginatedResponses = filteredResponses.slice(startIndex, startIndex + responsesPerPage)
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="bg-white border-b border-slate-200">
         <div className="px-6 py-4">
@@ -275,26 +332,98 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
       <main className="px-6 py-8">
         <div className="max-w-7xl mx-auto">
-          {/* Page Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-slate-800 mb-2">{mockResults.title}</h1>
-            <div className="flex items-center space-x-6 text-sm text-slate-600">
-              <div className="flex items-center">
-                <Calendar className="w-4 h-4 mr-1" />
-                Created {mockResults.createdOn}
-              </div>
-              <Badge variant="secondary">{mockResults.language}</Badge>
+          {loading ? (
+            <div className="text-center py-16">
+              <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-600 mx-auto mb-4"></div>
+              <p className="text-lg text-gray-600">Loading form results...</p>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Page Header */}
+              <div className="mb-8">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h1 className="text-2xl font-500 text-slate-800 mb-2">
+                      {formResults?.title || "Form Results"}
+                    </h1>
+                    <div className="flex items-center space-x-6 text-sm text-slate-600">
+                      <div className="flex items-center">
+                        <Globe className="w-4 h-4 mr-1 " />
+                        {formResults?.language || "No Language Specified"}
+                      </div>
+                      <div className="flex items-center">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        {formResults?.created_at ? new Date(formResults.created_at).toLocaleString('en-US', { 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        }) : "No date"}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Form Link - Right Side */}
+                  {formResults?.form_unique_id && (
+                    <div className="flex items-center gap-2 bg-slate-100 rounded-full px-3 py-1 border border-slate-200 min-w-[220px] w-fit">
+                      <LinkIcon className="w-4 h-4 text-blue-500 mr-1" />
+                      <a
+                        href={`/forms/${formResults.form_unique_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-poppins tracking-wide font-medium text-green-700 hover:underline focus:underline outline-none transition-colors cursor-pointer flex-1"
+                        style={{ wordBreak: 'break-all' }}
+                      >
+                        {typeof window !== 'undefined' ? `${window.location.host}/forms/${formResults.form_unique_id}` : `/forms/${formResults.form_unique_id}`}
+                      </a>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="p-1 cursor-pointer flex items-center" 
+                        style={{marginLeft: 0}} 
+                        onClick={() => {
+                          const formUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${formResults.form_unique_id}`;
+                          navigator.clipboard.writeText(formUrl).then(() => {
+                            setCopiedLink(true);
+                            setTimeout(() => setCopiedLink(false), 2000);
+                          }).catch(err => {
+                            console.error('Failed to copy:', err);
+                            // Fallback for older browsers
+                            const textArea = document.createElement('textarea');
+                            textArea.value = formUrl;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            setCopiedLink(true);
+                            setTimeout(() => setCopiedLink(false), 2000);
+                          });
+                        }}
+                      >
+                        {copiedLink ? (
+                          <>
+                            <Check className="w-4 h-4 text-green-600 mr-1" />
+                          </>
+                        ) : (
+                          "Copy"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          {/* Top Summary Cards (Fixed) */}
+          {/* Top Summary Cards (Real Data) */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <Card>
+            <Card className="border border-slate-400 shadow-none rounded-lg">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">Total Responses</p>
-                    <p className="text-3xl font-bold text-slate-800">{mockResults.totalResponses}</p>
+                    <p className="font-400 text-slate-600">Total Responses</p>
+                    <p className="text-3xl font-500 text-slate-800 mt-4">
+                      {loading ? "..." : formResults?.total_responses || 0}
+                    </p>
                   </div>
                   <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                     <MessageSquare className="w-6 h-6 text-blue-600" />
@@ -303,12 +432,14 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-slate-400 shadow-none rounded-lg">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">Avg. Response Length</p>
-                    <p className="text-3xl font-bold text-slate-800">{mockResults.avgResponseLength}</p>
+                    <p className="font-400 text-slate-600">Avg. Response Length</p>
+                    <p className="text-3xl font-500 text-slate-800 mt-4">
+                      {loading ? "..." : `${formResults?.avg_response_time || 0}s`}
+                    </p>
                   </div>
                   <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
                     <Clock className="w-6 h-6 text-purple-600" />
@@ -317,28 +448,32 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-slate-400 shadow-none rounded-lg">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">Completion Rate</p>
-                    <p className="text-3xl font-bold text-slate-800">{mockResults.completionRate}%</p>
+                    <p className="font-400 text-slate-600">Completion Rate</p>
+                    <p className="text-3xl font-500 text-slate-800 mt-4">
+                      {loading ? "..." : `${formResults?.completion_rate || 0}%`}
+                    </p>
                   </div>
                   <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-green-600" />
                   </div>
                 </div>
-                <Progress value={mockResults.completionRate} className="mt-2" />
+                <Progress value={formResults?.completion_rate || 0} className="mt-2" />
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-slate-400 shadow-none rounded-lg">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">Sentiment Score</p>
-                    <p className="text-3xl font-bold text-green-600">+{mockResults.sentimentScore}</p>
-                    <p className="text-xs text-slate-500">Positive trend</p>
+                    <p className="font-400 text-slate-600">Questions</p>
+                    <p className="text-3xl font-500 text-slate-800 mt-4">
+                      {loading ? "..." : formResults?.question_breakdown?.length || 0}
+                    </p>
+                    <p className="text-xs text-slate-500">Total questions</p>
                   </div>
                   <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-green-600" />
@@ -351,28 +486,28 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
           {/* Tabbed Analytics Section */}
           <Tabs defaultValue="overview" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="individual">Individual Responses</TabsTrigger>
+              <TabsTrigger value="overview" className="text-sm font-400 text-slate-800">Overview</TabsTrigger>
+              <TabsTrigger value="individual" className="text-sm font-400 text-slate-800">Individual Responses</TabsTrigger>
             </TabsList>
 
             {/* Tab 1: Overview */}
             <TabsContent value="overview" className="space-y-8">
               {/* AI Insights Section */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
-                  <CardTitle>AI Insights</CardTitle>
+                  <CardTitle className="text-lg font-400 text-slate-800">AI Insights</CardTitle>
                   <CardDescription>Most common themes identified from voice responses</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {mockResults.aiInsights.map((insight, index) => (
-                      <div key={index} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                      <div key={index} className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-400">
                         <div className="flex-1">
                           <div className="flex items-center space-x-3 mb-2">
                             <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-xs font-medium text-blue-600">{index + 1}</span>
+                              <span className="text-xs font-400 text-blue-600">{index + 1}</span>
                             </div>
-                            <h4 className="font-medium text-slate-800">{insight.summary}</h4>
+                            <h4 className="font-400 text-slate-800">{insight.summary}</h4>
                             <Badge variant="outline" className="text-xs">
                               {insight.percentage}%
                             </Badge>
@@ -390,7 +525,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Sentiment Breakdown */}
-                <Card>
+                <Card className="border border-slate-400 shadow-none rounded-lg">
                   <CardHeader>
                     <CardTitle>Sentiment Breakdown</CardTitle>
                     <CardDescription>Overall sentiment analysis of responses</CardDescription>
@@ -435,7 +570,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                 </Card>
 
                 {/* Top Issues */}
-                <Card>
+                <Card className="border border-slate-400 shadow-none rounded-lg">
                   <CardHeader>
                     <CardTitle>Top Issues</CardTitle>
                     <CardDescription>Most frequently mentioned concerns</CardDescription>
@@ -456,7 +591,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               </div>
 
               {/* Top Responses Section */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
                   <CardTitle>Top Responses</CardTitle>
                   <CardDescription>Featured voice responses for each question</CardDescription>
@@ -464,11 +599,11 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                 <CardContent>
                   <div className="space-y-6">
                     {mockResults.questions.map((question) => (
-                      <div key={question.id} className="border border-slate-200 rounded-lg p-4">
+                      <div key={question.id} className="border border-slate-400 rounded-lg p-4">
                         <h4 className="font-medium text-slate-800 mb-4">{question.text}</h4>
                         <div className="space-y-3">
                           {question.responses.slice(0, 3).map((response) => (
-                            <div key={response.id} className="bg-slate-50 rounded-lg p-4">
+                            <div key={response.id} className="bg-white rounded-lg p-4 border border-slate-400">
                               <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center space-x-3">
                                   <Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-transparent">
@@ -500,44 +635,56 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               </Card>
 
               {/* Question Completion Chart */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
                   <CardTitle>Question Completion Chart</CardTitle>
                   <CardDescription>Response drop-off across questions</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={mockResults.completionFunnel}>
-                        <XAxis dataKey="question" />
-                        <YAxis />
-                        <Tooltip formatter={(value) => [value, "Responses"]} />
-                        <Line 
-                          type="monotone" 
-                          dataKey="responses" 
-                          stroke="#8b5cf6" 
-                          strokeWidth={3}
-                          dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 6 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="mt-4 flex justify-center space-x-8">
-                    {mockResults.completionFunnel.map((item) => (
-                      <div key={item.question} className="text-center">
-                        <div className="text-lg font-semibold text-slate-800">{item.responses}</div>
-                        <div className="text-sm text-slate-600">{item.question}</div>
-                        <div className="text-xs text-slate-500">{item.percentage}%</div>
+                  {loading ? (
+                    <div className="h-64 flex items-center justify-center">
+                      <div className="text-slate-500">Loading completion data...</div>
+                    </div>
+                  ) : formResults?.completion_funnel?.length > 0 ? (
+                    <>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={formResults.completion_funnel}>
+                            <XAxis dataKey="question" />
+                            <YAxis />
+                            <Tooltip formatter={(value) => [value, "Responses"]} />
+                            <Line 
+                              type="monotone" 
+                              dataKey="responses" 
+                              stroke="#8b5cf6" 
+                              strokeWidth={3}
+                              dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 6 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
                       </div>
-                    ))}
-                  </div>
+                      <div className="mt-4 flex justify-center space-x-8">
+                        {formResults.completion_funnel.map((item: any) => (
+                          <div key={item.question} className="text-center">
+                            <div className="text-lg font-semibold text-slate-800">{item.responses}</div>
+                            <div className="text-sm text-slate-600">{item.question}</div>
+                            <div className="text-xs text-slate-500">{item.percentage}%</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-64 flex items-center justify-center">
+                      <div className="text-slate-500">No completion data available</div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Question-wise Response Breakdown */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
-                  <CardTitle>Question-wise Response Breakdown</CardTitle>
+                  <CardTitle className="text-lg font-200 text-slate-800">Question-wise Response Breakdown</CardTitle>
                   <CardDescription>Response distribution for each question</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -582,7 +729,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               </Card>
 
               {/* Response Heatmap */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
                   <CardTitle>Response Heatmap</CardTitle>
                   <CardDescription>Daily submission activity by time of day</CardDescription>
@@ -651,7 +798,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
             {/* Tab 2: Individual Responses */}
             <TabsContent value="individual" className="space-y-6">
               {/* Filters */}
-              <Card>
+              <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardContent className="p-6">
                   <div className="flex flex-col md:flex-row gap-4">
                     <div className="flex-1">
@@ -672,9 +819,9 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Questions</SelectItem>
-                          {mockResults.questions.map((question) => (
-                            <SelectItem key={question.id} value={question.id}>
-                              {question.text.substring(0, 50)}...
+                          {formResults?.question_breakdown?.map((question: any) => (
+                            <SelectItem key={question.question_id} value={question.question_id.toString()}>
+                              {question.question_text.substring(0, 50)}...
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -686,67 +833,87 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
               {/* Individual Response Cards */}
               <div className="space-y-6">
-                {paginatedResponses.map((user) => (
-                  <Card key={user.id}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{user.name}</CardTitle>
-                      <CardDescription>{user.responses.length} responses</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {user.responses
-                          .filter(response => selectedQuestion === "all" || response.questionId === selectedQuestion)
-                          .map((response, index) => (
-                          <div key={index} className="border border-slate-200 rounded-lg p-4">
-                            <div className="mb-3">
-                              <h4 className="font-medium text-slate-800 mb-2">{response.questionText}</h4>
-                              <div className="flex items-center space-x-3 mb-3">
-                                <Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-transparent">
-                                  <Play className="w-3 h-3" />
-                                </Button>
-                                <Badge
-                                  variant={response.sentiment === "positive" ? "default" : response.sentiment === "negative" ? "destructive" : "secondary"}
-                                  className={
-                                    response.sentiment === "positive"
-                                      ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                      : response.sentiment === "negative"
-                                        ? "bg-red-100 text-red-800 hover:bg-red-100"
-                                        : "bg-slate-100 text-slate-800 hover:bg-slate-100"
-                                  }
-                                >
-                                  {response.sentiment}
-                                </Badge>
-                                <span className="text-sm text-slate-500">{response.duration}</span>
+                {loading ? (
+                  <div className="text-center py-8">
+                    <div className="text-slate-500">Loading responses...</div>
+                  </div>
+                ) : formResponses.length > 0 ? (
+                  formResponses.map((user) => (
+                    <Card key={user.response_id} className="border border-slate-400 shadow-none rounded-lg">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{user.user_id}</CardTitle>
+                        <CardDescription>{user.responses.length} responses</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {user.responses.map((response: any, index: number) => (
+                            <div key={index} className="border border-slate-400 rounded-lg p-4">
+                              <div className="mb-3">
+                                <h4 className="font-400 text-slate-800 mb-2">{response.question_text}</h4>
+                                <div className="flex w-1/2 items-center space-x-3 mb-3 mt-3">
+                                  {response.voice_file ? (
+                                    <AudioPlayer
+                                      src={response.voice_file}
+                                      layout="horizontal-reverse"
+                                      defaultDuration={response.duration}
+                                      showSkipControls={false}
+                                      showJumpControls={false}
+                                      showFilledVolume={true}
+                                      className="custom-audio-player"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
+                                      <Mic className="w-3 h-3 text-slate-400" />
+                                    </div>
+                                  )}
+                                  <Badge
+                                    variant={response.sentiment === "positive" ? "default" : response.sentiment === "negative" ? "destructive" : "secondary"}
+                                    className={
+                                      response.sentiment === "positive"
+                                        ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                        : response.sentiment === "negative"
+                                          ? "bg-red-100 text-red-800 hover:bg-green-100"
+                                          : "bg-slate-100 text-slate-800 hover:bg-slate-100"
+                                    }
+                                  >
+                                    {response.sentiment}
+                                  </Badge>
+                                  <span className="text-sm text-slate-500">{response.duration}</span>
+                                </div>
+                              </div>
+                              <div className="bg-white rounded-lg p-3 border border-slate-400">
+                                <p className="text-sm text-slate-700 italic">"{response.transcript}"</p>
                               </div>
                             </div>
-                            <div className="bg-slate-50 rounded-lg p-3">
-                              <p className="text-sm text-slate-700 italic">"{response.transcript}"</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-slate-500">No responses found</div>
+                  </div>
+                )}
               </div>
 
               {/* Pagination */}
-              {totalPages > 1 && (
+              {pagination && pagination.pages > 1 && (
                 <div className="flex justify-center items-center space-x-4">
                   <Button
                     variant="outline"
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    onClick={() => loadResponses(currentPage - 1)}
                     disabled={currentPage === 1}
                   >
                     Previous
                   </Button>
                   <span className="text-sm text-slate-600">
-                    Page {currentPage} of {totalPages}
+                    Page {currentPage} of {pagination.pages}
                   </span>
                   <Button
                     variant="outline"
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
+                    onClick={() => loadResponses(currentPage + 1)}
+                    disabled={currentPage === pagination.pages}
                   >
                     Next
                   </Button>
@@ -754,6 +921,8 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               )}
             </TabsContent>
           </Tabs>
+            </>
+          )}
         </div>
       </main>
       <footer className="p-4 text-center">

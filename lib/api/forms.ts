@@ -12,9 +12,38 @@ export async function fetchForms() {
   return res.data;
 }
 
-export async function fetchFormByUniqueId(form_unique_id: string) {
-  const res = await api.get(`/forms/public/${form_unique_id}`);
-  return res.data;
+export async function fetchFormByUniqueId(uniqueId: string) {
+  const response = await api.get(`/forms/public/${uniqueId}`);
+  return response.data;
+}
+
+export async function fetchFormResults(formId: number) {
+  const response = await api.get(`/forms/${formId}/results`);
+  return response.data;
+}
+
+export async function fetchFormResponses(
+  formId: number, 
+  page: number = 1, 
+  limit: number = 10,
+  questionFilter?: string,
+  search?: string
+) {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString()
+  });
+  
+  if (questionFilter && questionFilter !== 'all') {
+    params.append('question_filter', questionFilter);
+  }
+  
+  if (search) {
+    params.append('search', search);
+  }
+  
+  const response = await api.get(`/forms/${formId}/responses?${params.toString()}`);
+  return response.data;
 }
 
 export async function fetchFormById(formId: number) {
@@ -35,4 +64,4 @@ export async function updateForm(formId: number, data: Partial<{ title: string; 
 export async function deleteForm(formId: number) {
   const res = await api.delete(`/forms/${formId}`);
   return res.data;
-} 
+}
