@@ -29,6 +29,14 @@ export default function PublicFormPage({ params }: { params: any }) {
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [canPlayback, setCanPlayback] = useState(false)
+  
+  // Helper function to format duration in seconds to MM:SS
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
   const recorderControls = useVoiceVisualizer({
     onEndAudioPlayback: () => {
       setIsPlaying(false);
@@ -81,6 +89,19 @@ export default function PublicFormPage({ params }: { params: any }) {
       setRecordingDuration(recorderControls.duration);
     }
   }, [recorderControls.recordedBlob]);
+
+  // Update duration during recording
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecording) {
+      interval = setInterval(() => {
+        setRecordingDuration(recorderControls.duration);
+      }, 100); // Update every 100ms for smooth display
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRecording, recorderControls.duration]);
 
   useEffect(() => {
     fetchFormByUniqueId(id)
@@ -165,69 +186,78 @@ export default function PublicFormPage({ params }: { params: any }) {
   
 
   const handleNext = async () => {
-    
-    if (formResponse && form) {
-      const isLast = currentQuestion === questions.length - 1;
-      const textValue = textResponses[questions[currentQuestion].id] || "";
-      const question = questions[currentQuestion];
-      let file: File | null = null;
-      let finalDuration = recordingDuration;
-      
-
-      if (recorderControls.recordedBlob) {
-        file = new File([recorderControls.recordedBlob], `audio_question_${question.question_number || currentQuestion + 1}.webm`, { type: "audio/webm" });
-      }
-
+    try {
       // Set loading state
       setIsLoading(true);
-
-      try {
-        await createFormResponseFieldMultipart({
-          formResponseId: formResponse.responseId,
-          formId: form.id,
-          formfeildId: question.id,
-          question_number: question.question_number || currentQuestion + 1,
-          responseText: textValue,
-          isLastQuestion: isLast,
-          file,
-          responseTime: recorderControls.duration
-        });
-        recorderControls.clearCanvas();
-      } catch (err) {
-        console.error("Multipart API call failed", err);
-        return;
-      } finally {
-        setIsLoading(false);
-      }
-
-      // Update cookie with new question number
-      const cookieKey = `echo-forms-${form.id}`;
-      const newQuestionNum = currentQuestion + 1;
-      // Keep the existing responseId and update question number
-      const existingCookieVal = jsCookie.get(cookieKey);
-      if (existingCookieVal && existingCookieVal.includes(':')) {
-        const [responseId] = existingCookieVal.split(':');
-        jsCookie.set(cookieKey, `${responseId}:${newQuestionNum}`);
-      } else {
-        // Fallback: create new cookie with current responseId
-        jsCookie.set(cookieKey, `${formResponse?.responseId}:${newQuestionNum}`);
-      }
+      if (formResponse && form) {
+        const isLast = currentQuestion === questions.length - 1;
+        const textValue = textResponses[questions[currentQuestion].id] || "";
+        const question = questions[currentQuestion];
+        let file: File | null = null;
+        let finalDuration = recordingDuration;
       
-      // Only mark as completed if this was the last question
-      if (isLast) {
-        setIsCompleted(true);
-      } else {
-        // Move to next question
-        setCurrentQuestion(currentQuestion + 1);
+        if (recorderControls.recordedBlob) {
+          file = new File([recorderControls.recordedBlob], `audio_question_${question.question_number || currentQuestion + 1}.webm`, { type: "audio/webm" });
+        }
+
+        try {
+          await createFormResponseFieldMultipart({
+            formResponseId: formResponse.responseId,
+            formId: form.id,
+            formfeildId: question.id,
+            question_number: question.question_number || currentQuestion + 1,
+            responseText: textValue,
+            isLastQuestion: isLast,
+            file,
+            responseTime: recorderControls.duration
+          });
+          recorderControls.clearCanvas();
+        } catch (err) {
+          console.error("Multipart API call failed", err);
+          return;
+        } finally {
+          setIsLoading(false);
+        }
+
+        // Update cookie with new question number
+        const cookieKey = `echo-forms-${form.id}`;
+        const newQuestionNum = currentQuestion + 1;
+        // Keep the existing responseId and update question number
+        const existingCookieVal = jsCookie.get(cookieKey);
+        if (existingCookieVal && existingCookieVal.includes(':')) {
+          const [responseId] = existingCookieVal.split(':');
+          jsCookie.set(cookieKey, `${responseId}:${newQuestionNum}`);
+        } else {
+          // Fallback: create new cookie with current responseId
+          jsCookie.set(cookieKey, `${formResponse?.responseId}:${newQuestionNum}`);
+        }
+        
+        // Only mark as completed if this was the last question
+        if (isLast) {
+          setIsCompleted(true);
+        } else {
+          // Move to next question
+          setCurrentQuestion(currentQuestion + 1);
+        }
       }
+    } catch (error) {
+      console.error("Error in handleNext:", error);
+      alert(error instanceof Error ? error.message : "An error occurred while processing your response");
+      setIsLoading(false);
     }
   }
 
   const handlePrevious = () => {
     if (currentQuestion > 0) {
+      // Clear recording when going to previous question
+      recorderControls.clearCanvas();
+      setCanPlayback(false);
+      setIsRecording(false);
+      setIsPlaying(false);
+      setRecordingDuration(0);
+      setTextResponses({});
       setCurrentQuestion(currentQuestion - 1)
     }
-    window.location.reload();
   }
 
   const canProceed = questions[currentQuestion]?.required 
@@ -327,7 +357,12 @@ export default function PublicFormPage({ params }: { params: any }) {
                     />
                   </div>
 
-                {<p>{ isRecording ? recorderControls.formattedRecordingTime : recorderControls.formattedRecordedAudioCurrentTime}</p>}
+                <p className="text-sm text-slate-600 font-medium">
+                  {isRecording 
+                    ? (recorderControls.formattedRecordingTime || formatDuration(recordingDuration))
+                    : (recorderControls.formattedRecordedAudioCurrentTime || formatDuration(recordingDuration))
+                  }
+                </p>
                 <div className="mb-8 flex flex-row justify-center items-center gap-6">
                   {/* Pause/Resume Button - Always show but conditionally style */}
                   <button 
@@ -379,7 +414,7 @@ export default function PublicFormPage({ params }: { params: any }) {
 
                   {/* Clear/Trash Button - Always show but conditionally style */}
                   <button
-                    onClick={recorderControls.clearCanvas}
+                    onClick={handleClearRecording}
                     disabled={(!recorderControls.recordedBlob && !isRecording) || isLoading}
                     className={`w-20 h-20 rounded-full flex justify-center items-center transition-all duration-200 ${
                       (recorderControls.recordedBlob || isRecording)
@@ -403,7 +438,7 @@ export default function PublicFormPage({ params }: { params: any }) {
                 <div className="flex justify-between items-center mt-6">
                   <Button
                     variant="outline"
-                    onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
+                    onClick={handlePrevious}
                     disabled={currentQuestion === 0}
                     className="flex items-center bg-transparent cursor-pointer"
                   >

@@ -8,15 +8,15 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Mic, ArrowLeft, Download, Share, Play, Calendar, Users, Clock, TrendingUp, MessageSquare, Search, Pause, Globe, LinkIcon, Check } from 'lucide-react'
+import { Mic, ArrowLeft, Play, Calendar, Users, Clock, TrendingUp, MessageSquare, Search, Pause, Globe, LinkIcon, Check } from 'lucide-react'
 import Link from "next/link"
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line } from "recharts"
-import { fetchFormResults, fetchFormResponses } from "@/lib/api/forms"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, LineChart, Line, ResponsiveContainer, Tooltip } from '@/components/ui/chart'
+import { fetchFormResults, fetchFormResponses, fetchFormAnalytics } from "@/lib/api/forms"
 import AudioPlayer from "react-h5-audio-player"
 import "react-h5-audio-player/lib/styles.css"
 
-// Mock data for results
-const mockResults = {
+// Mock data for results - COMMENTED OUT, using real analytics data
+/* const mockResults = {
   id: "1",
   title: "Customer Satisfaction Survey",
   totalResponses: 132,
@@ -213,13 +213,42 @@ const mockResults = {
       ]
     }
   ]
-}
+} */
+
+// Helper function to convert language codes to full language names
+const getLanguageName = (code: string) => {
+  const languageMap: { [key: string]: string } = {
+    'en': 'English',
+    'hi': 'Hindi',
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'it': 'Italian',
+    'pt': 'Portuguese',
+    'ru': 'Russian',
+    'ja': 'Japanese',
+    'ko': 'Korean',
+    'zh': 'Chinese',
+    'ar': 'Arabic',
+    'bn': 'Bengali',
+    'ta': 'Tamil',
+    'te': 'Telugu',
+    'ml': 'Malayalam',
+    'kn': 'Kannada',
+    'gu': 'Gujarati',
+    'pa': 'Punjabi',
+    'or': 'Odia',
+    'as': 'Assamese',
+    'ne': 'Nepali',
+    'ur': 'Urdu'
+  };
+  return languageMap[code] || code.toUpperCase();
+};
 
 export default function ResultsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = React.use(params) as { id: string };
   
   const [selectedQuestion, setSelectedQuestion] = useState<string>("all")
-  const [searchKeyword, setSearchKeyword] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [pagination, setPagination] = useState<any>(null)
   const [copiedLink, setCopiedLink] = useState(false)
@@ -228,6 +257,8 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
   // Real data state
   const [formResults, setFormResults] = useState<any>(null)
   const [formResponses, setFormResponses] = useState<any[]>([])
+  const [allFormResponses, setAllFormResponses] = useState<any[]>([]) // All responses for analytics
+  const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   
   // Fetch form results on component mount
@@ -235,32 +266,53 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
     const loadFormData = async () => {
       try {
         setLoading(true)
-        const results = await fetchFormResults(Number(id))
+        
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 10000)
+        )
+        
+        const resultsPromise = fetchFormResults(Number(id))
+        const results = await Promise.race([resultsPromise, timeoutPromise])
+        
         setFormResults(results)
         
-        // Load initial responses
+        // Analytics data is included in formResults.analytics
+        setAnalytics(results.analytics || null)
+        
+        // Load ALL responses for analytics (no pagination)
+        const allResponses = await fetchFormResponses(Number(id), 1, 10000) // Large number to get all
+        setAllFormResponses(allResponses.responses)
+        
+        // Load initial paginated responses for display
         const responses = await fetchFormResponses(Number(id), 1, responsesPerPage)
         setFormResponses(responses.responses)
         setPagination(responses.pagination)
       } catch (error) {
         console.error('Failed to load form data:', error)
+        // Set some default values to prevent infinite loading
+        setFormResults(null)
+        setAnalytics(null)
+        setFormResponses([])
+        setPagination(null)
       } finally {
         setLoading(false)
       }
     }
     
+    if (id) {
     loadFormData()
-  }, [id])
+    }
+  }, [id, responsesPerPage])
   
-  // Load responses when filters change
+  // Load responses with server-side filtering
   const loadResponses = async (page: number = 1) => {
     try {
       const responses = await fetchFormResponses(
         Number(id), 
         page, 
         responsesPerPage, 
-        selectedQuestion, 
-        searchKeyword
+        selectedQuestion === "all" ? undefined : selectedQuestion
       )
       setFormResponses(responses.responses)
       setPagination(responses.pagination)
@@ -270,33 +322,72 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
     }
   }
   
-  // Handle search and filter changes
+  // Handle filter changes
   useEffect(() => {
     loadResponses(1)
-  }, [selectedQuestion, searchKeyword])
+  }, [selectedQuestion])
 
   const getHeatmapColor = (value: number) => {
-    const intensity = Math.min(value / 25, 1)
-    return `rgba(139, 92, 246, ${intensity})`
+    if (value === 0) return '#f8fafc' // Very light gray for no activity
+    const intensity = Math.min(value / 10, 1)
+    const alpha = 0.2 + (intensity * 0.8) // Range from 0.2 to 1.0
+    return `rgba(139, 92, 246, ${alpha})`
   }
 
-  // Filter individual responses based on question and search
-  const filteredResponses = mockResults.individualResponses.filter(user => {
-    const matchesQuestion = selectedQuestion === "all" || 
-      user.responses.some(response => response.questionId === selectedQuestion)
-    
-    const matchesSearch = searchKeyword === "" ||
-      user.responses.some(response => 
-        response.transcript.toLowerCase().includes(searchKeyword.toLowerCase())
-      )
-    
-    return matchesQuestion && matchesSearch
-  })
+  // Use server-side filtered responses directly
+  const paginatedResponses = formResponses
 
-  // Pagination
-  const totalPages = Math.ceil(filteredResponses.length / responsesPerPage)
-  const startIndex = (currentPage - 1) * responsesPerPage
-  const paginatedResponses = filteredResponses.slice(startIndex, startIndex + responsesPerPage)
+  // Calculate language distribution from all responses
+  const calculateLanguageDistribution = () => {
+    if (!allFormResponses || allFormResponses.length === 0) return []
+    
+    const languageCount: { [key: string]: number } = {}
+    
+    allFormResponses.forEach((user: any) => {
+      user.responses.forEach((response: any) => {
+        const lang = response.language || 'en'
+        languageCount[lang] = (languageCount[lang] || 0) + 1
+      })
+    })
+    
+    return Object.entries(languageCount).map(([lang, count]) => ({
+      name: getLanguageName(lang),
+      value: count,
+      language: lang
+    })).sort((a, b) => b.value - a.value)
+  }
+
+  const languageDistribution = calculateLanguageDistribution()
+
+  // Calculate language-sentiment breakdown
+  const calculateLanguageSentimentBreakdown = () => {
+    if (!allFormResponses || allFormResponses.length === 0) return []
+    
+    const languageSentimentCount: { [key: string]: { [key: string]: number } } = {}
+    
+    allFormResponses.forEach((user: any) => {
+      user.responses.forEach((response: any) => {
+        const lang = response.language || 'en'
+        const sentiment = response.sentiment || 'neutral'
+        
+        if (!languageSentimentCount[lang]) {
+          languageSentimentCount[lang] = { positive: 0, neutral: 0, negative: 0 }
+        }
+        languageSentimentCount[lang][sentiment] = (languageSentimentCount[lang][sentiment] || 0) + 1
+      })
+    })
+    
+    return Object.entries(languageSentimentCount).map(([lang, sentiments]) => ({
+      language: getLanguageName(lang),
+      languageCode: lang,
+      positive: sentiments.positive || 0,
+      neutral: sentiments.neutral || 0,
+      negative: sentiments.negative || 0,
+      total: (sentiments.positive || 0) + (sentiments.neutral || 0) + (sentiments.negative || 0)
+    })).sort((a, b) => b.total - a.total)
+  }
+
+  const languageSentimentBreakdown = calculateLanguageSentimentBreakdown()
 
   return (
     <div className="min-h-screen bg-white">
@@ -311,14 +402,6 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <Button variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </Button>
-              <Button variant="outline" size="sm">
-                <Share className="w-4 h-4 mr-2" />
-                Share
-              </Button>
               <Link href="/" className="flex items-center space-x-2">
                 <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
                   <Mic className="w-4 h-4 text-white" />
@@ -336,6 +419,16 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
             <div className="text-center py-16">
               <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-600 mx-auto mb-4"></div>
               <p className="text-lg text-gray-600">Loading form results...</p>
+            </div>
+          ) : !formResults ? (
+            <div className="text-center py-16">
+              <div className="text-gray-400 mb-4">
+                <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No data available</h3>
+              <p className="text-gray-500">Unable to load form results. Please try again later.</p>
             </div>
           ) : (
             <>
@@ -500,25 +593,70 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {mockResults.aiInsights.map((insight, index) => (
+                    {analytics?.categories?.length > 0 ? (
+                      (() => {
+                        // Sort categories by percentage (descending) and take top 4
+                        const sortedCategories = [...analytics.categories].sort((a, b) => b.percentage - a.percentage);
+                        const topCategories = sortedCategories.slice(0, 4);
+                        const otherCategories = sortedCategories.slice(4);
+                        
+                        // Calculate "Others" percentage
+                        const othersPercentage = otherCategories.reduce((sum, cat) => sum + cat.percentage, 0);
+                        
+                        return (
+                          <>
+                            {topCategories.map((category: any, index: number) => (
                       <div key={index} className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-400">
                         <div className="flex-1">
                           <div className="flex items-center space-x-3 mb-2">
                             <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                               <span className="text-xs font-400 text-blue-600">{index + 1}</span>
                             </div>
-                            <h4 className="font-400 text-slate-800">{insight.summary}</h4>
+                                    <h4 className="font-400 text-slate-800">{category.category_name}</h4>
                             <Badge variant="outline" className="text-xs">
-                              {insight.percentage}%
+                                      {category.percentage}%
                             </Badge>
                           </div>
-                          <p className="text-sm text-slate-600 ml-9">{insight.description}</p>
+                                  <p className="text-sm text-slate-600 ml-9">{category.summary_text}</p>
                           <div className="ml-9 mt-2">
-                            <Progress value={insight.percentage} className="h-2" />
+                                    <Progress value={category.percentage} className="h-2 [&>div]:bg-purple-500" />
                           </div>
                         </div>
                       </div>
                     ))}
+                            
+                            {/* Show "Others" category if there are more than 4 categories */}
+                            {otherCategories.length > 0 && (
+                              <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-400">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-3 mb-2">
+                                    <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                      <span className="text-xs font-400 text-gray-600">+</span>
+                                    </div>
+                                    <h4 className="font-400 text-slate-800">Others</h4>
+                                    <Badge variant="outline" className="text-xs">
+                                      {othersPercentage.toFixed(1)}%
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-slate-600 ml-9">
+                                    {otherCategories.length} additional category{otherCategories.length !== 1 ? 'ies' : ''} with smaller percentages
+                                  </p>
+                                  <div className="ml-9 mt-2">
+                                    <Progress value={othersPercentage} className="h-2 [&>div]:bg-purple-500" />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        <MessageSquare className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                        <p>No analytics data available yet.</p>
+                        <p className="text-sm mt-2">Submit some voice responses to see AI-generated insights!</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -531,40 +669,101 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                     <CardDescription>Overall sentiment analysis of responses</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
+                    {analytics?.sentiment_distribution ? (
+                      <ChartContainer
+                        config={{
+                          positive: {
+                            label: "Positive",
+                            color: "#10b981",
+                          },
+                          neutral: {
+                            label: "Neutral", 
+                            color: "#6b7280",
+                          },
+                          negative: {
+                            label: "Negative",
+                            color: "#ef4444",
+                          },
+                        }}
+                        className="h-64 w-full"
+                      >
                         <PieChart>
                           <Pie
-                            data={mockResults.sentimentData}
+                            data={[
+                              { name: "positive", value: analytics.sentiment_distribution.positive },
+                              { name: "neutral", value: analytics.sentiment_distribution.neutral },
+                              { name: "negative", value: analytics.sentiment_distribution.negative }
+                            ]}
                             cx="50%"
                             cy="50%"
                             innerRadius={60}
                             outerRadius={100}
                             paddingAngle={5}
                             dataKey="value"
+                            nameKey="name"
                           >
-                            {mockResults.sentimentData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            {[
+                              { name: "positive", value: analytics.sentiment_distribution.positive },
+                              { name: "neutral", value: analytics.sentiment_distribution.neutral },
+                              { name: "negative", value: analytics.sentiment_distribution.negative }
+                            ].map((entry, index) => (
+                              <Cell 
+                                key={`cell-${index}`} 
+                                fill={
+                                  entry.name === "positive" ? "#10b981" :
+                                  entry.name === "neutral" ? "#6b7280" :
+                                  "#ef4444"
+                                }
+                                style={{
+                                  cursor: 'pointer',
+                                  transition: 'opacity 0.2s ease-in-out'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (e.target && 'style' in e.target) {
+                                    (e.target as any).style.opacity = 0.8;
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (e.target && 'style' in e.target) {
+                                    (e.target as any).style.opacity = 1;
+                                  }
+                                }}
+                              />
                             ))}
                           </Pie>
-                          <Tooltip 
-                            formatter={(value, name, props) => [
-                              `${value}%`, 
-                              `${props.payload.name} (Keywords: ${props.payload.keywords.join(', ')})`
-                            ]} 
-                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
                         </PieChart>
-                      </ResponsiveContainer>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-64 text-slate-500">
+                        <div className="text-center">
+                          <MessageSquare className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                          <p>No sentiment data available</p>
                     </div>
+                      </div>
+                    )}
                     <div className="flex justify-center space-x-6 mt-4">
-                      {mockResults.sentimentData.map((item) => (
-                        <div key={item.name} className="flex items-center space-x-2">
-                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                          <span className="text-sm text-slate-600">
-                            {item.name}: {item.value}%
-                          </span>
+                      {analytics?.sentiment_distribution ? (
+                        <>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 rounded-full bg-green-500" />
+                            <span className="text-sm text-slate-600">Positive ({analytics.sentiment_distribution.positive})</span>
                         </div>
-                      ))}
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 rounded-full bg-gray-500" />
+                            <span className="text-sm text-slate-600">Neutral ({analytics.sentiment_distribution.neutral})</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 rounded-full bg-red-500" />
+                            <span className="text-sm text-slate-600">Negative ({analytics.sentiment_distribution.negative})</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center text-slate-500">
+                          <p>No sentiment data available</p>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -576,110 +775,262 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                     <CardDescription>Most frequently mentioned concerns</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={mockResults.topIssues} layout="horizontal">
-                          <XAxis type="number" />
-                          <YAxis dataKey="category" type="category" width={80} />
-                          <Tooltip formatter={(value) => [`${value}%`, "Mentioned by"]} />
-                          <Bar dataKey="percentage" fill="#ef4444" radius={[0, 4, 4, 0]} />
+                    {analytics?.categories?.length > 0 ? (
+                      <ChartContainer
+                        config={{
+                          responses: {
+                            label: "Responses",
+                            color: "#ef4444",
+                          },
+                        }}
+                        className="h-80 w-full"
+                      >
+                        <BarChart 
+                          data={analytics.categories
+                            .sort((a: any, b: any) => b.response_count - a.response_count)
+                            .slice(0, 5)
+                            .map((cat: any, index: number) => ({
+                              name: cat.category_name.length > 20 ? cat.category_name.substring(0, 20) + "..." : cat.category_name,
+                              fullName: cat.category_name,
+                              responses: cat.response_count,
+                              percentage: cat.percentage,
+                              index: index
+                            }))} 
+                          margin={{ top: 10, right: 30, left: 20, bottom: 5 }}
+                        >
+                          <XAxis 
+                            dataKey="name"
+                            tick={{ fontSize: 10 }}
+                            height={50}
+                            interval={0}
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 12 }}
+                          />
+                          <ChartTooltip 
+                            content={(props) => {
+                              if (!props.active || !props.payload?.length) return null;
+                              const data = props.payload[0].payload;
+                              return (
+                                <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-lg">
+                                  <p className="font-medium text-slate-900">{data.fullName}</p>
+                                  <p className="text-sm text-slate-600">Responses: {data.responses}</p>
+                                  <p className="text-sm text-slate-600">Percentage: {data.percentage}%</p>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar 
+                              dataKey="responses" 
+                            radius={[4, 4, 0, 0]}
+                            maxBarSize={60}
+                            style={{
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {analytics.categories
+                              .sort((a: any, b: any) => b.response_count - a.response_count)
+                              .slice(0, 5)
+                              .map((entry: any, index: number) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={
+                                    index === 0 ? "#ef4444" :  // Red for #1 (most critical)
+                                    index === 1 ? "#f97316" :  // Orange for #2
+                                    index === 2 ? "#eab308" :  // Yellow for #3
+                                    index === 3 ? "#22c55e" :  // Green for #4
+                                    "#3b82f6"  // Blue for #5
+                                  }
+                                />
+                              ))}
+                          </Bar>
                         </BarChart>
-                      </ResponsiveContainer>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-64 text-slate-500">
+                        <div className="text-center">
+                          <MessageSquare className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                          <p>No analytics data available</p>
                     </div>
+                    </div>
+                  )}
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Top Responses Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Language Distribution */}
               <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
-                  <CardTitle>Top Responses</CardTitle>
-                  <CardDescription>Featured voice responses for each question</CardDescription>
+                    <CardTitle>Language Distribution</CardTitle>
+                    <CardDescription>Languages used in responses</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-6">
-                    {mockResults.questions.map((question) => (
-                      <div key={question.id} className="border border-slate-400 rounded-lg p-4">
-                        <h4 className="font-medium text-slate-800 mb-4">{question.text}</h4>
-                        <div className="space-y-3">
-                          {question.responses.slice(0, 3).map((response) => (
-                            <div key={response.id} className="bg-white rounded-lg p-4 border border-slate-400">
-                              <div className="flex items-start justify-between mb-3">
-                                <div className="flex items-center space-x-3">
-                                  <Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-transparent">
-                                    <Play className="w-3 h-3" />
-                                  </Button>
-                                  <Badge
-                                    variant={response.sentiment === "positive" ? "default" : response.sentiment === "negative" ? "destructive" : "secondary"}
-                                    className={
-                                      response.sentiment === "positive"
-                                        ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                        : response.sentiment === "negative"
-                                          ? "bg-red-100 text-red-800 hover:bg-red-100"
-                                          : "bg-slate-100 text-slate-800 hover:bg-slate-100"
-                                    }
-                                  >
-                                    {response.sentiment}
-                                  </Badge>
-                                  <span className="text-sm text-slate-500">{response.duration}</span>
+                    {languageDistribution.length > 0 ? (
+                      <ChartContainer
+                        config={languageDistribution.reduce((config, item, index) => {
+                          const colors = [
+                            "#8b5cf6", // Purple
+                            "#06b6d4", // Cyan
+                            "#10b981", // Emerald
+                            "#f59e0b", // Amber
+                            "#ef4444", // Red
+                            "#3b82f6", // Blue
+                            "#84cc16", // Lime
+                            "#f97316", // Orange
+                            "#ec4899", // Pink
+                            "#6366f1"  // Indigo
+                          ]
+                          config[item.language] = {
+                            label: item.name,
+                            color: colors[index % colors.length]
+                          }
+                          return config
+                        }, {} as any)}
+                        className="h-80 w-full"
+                      >
+                        <PieChart>
+                          <Pie
+                            data={languageDistribution}
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={120}
+                            dataKey="value"
+                            nameKey="name"
+                          >
+                            {languageDistribution.map((entry, index) => {
+                              const colors = [
+                                "#8b5cf6", // Purple
+                                "#06b6d4", // Cyan
+                                "#10b981", // Emerald
+                                "#f59e0b", // Amber
+                                "#ef4444", // Red
+                                "#3b82f6", // Blue
+                                "#84cc16", // Lime
+                                "#f97316", // Orange
+                                "#ec4899", // Pink
+                                "#6366f1"  // Indigo
+                              ]
+                              return (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={colors[index % colors.length]}
+                                />
+                              )
+                            })}
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
+                        </PieChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-80 text-slate-500">
+                        <div className="text-center">
+                          <MessageSquare className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                          <p>No language data available</p>
                                 </div>
                               </div>
-                              <p className="text-sm text-slate-700 italic">"{response.transcript}"</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    )}
                 </CardContent>
               </Card>
 
-              {/* Question Completion Chart */}
+                {/* Language-Sentiment Breakdown */}
               <Card className="border border-slate-400 shadow-none rounded-lg">
                 <CardHeader>
-                  <CardTitle>Question Completion Chart</CardTitle>
-                  <CardDescription>Response drop-off across questions</CardDescription>
+                    <CardTitle>Language-Sentiment Analysis</CardTitle>
+                    <CardDescription>Sentiment breakdown by language</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {loading ? (
-                    <div className="h-64 flex items-center justify-center">
-                      <div className="text-slate-500">Loading completion data...</div>
-                    </div>
-                  ) : formResults?.completion_funnel?.length > 0 ? (
-                    <>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={formResults.completion_funnel}>
-                            <XAxis dataKey="question" />
-                            <YAxis />
-                            <Tooltip formatter={(value) => [value, "Responses"]} />
-                            <Line 
-                              type="monotone" 
-                              dataKey="responses" 
-                              stroke="#8b5cf6" 
-                              strokeWidth={3}
-                              dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 6 }}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
+                    {languageSentimentBreakdown.length > 0 ? (
+                      <ChartContainer
+                        config={{
+                          positive: {
+                            label: "Positive",
+                            color: "#10b981",
+                          },
+                          neutral: {
+                            label: "Neutral", 
+                            color: "#6b7280",
+                          },
+                          negative: {
+                            label: "Negative",
+                            color: "#ef4444",
+                          },
+                        }}
+                        className="h-80 w-full"
+                      >
+                        <BarChart
+                          data={languageSentimentBreakdown}
+                          margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                        >
+                          <XAxis 
+                            dataKey="language" 
+                            tick={{ fontSize: 12 }}
+                            angle={-45}
+                            textAnchor="end"
+                            height={60}
+                          />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <ChartTooltip 
+                            content={({ active, payload, label }) => {
+                              if (active && payload && payload.length) {
+                                const data = payload[0].payload;
+                                const total = data.positive + data.neutral + data.negative;
+                                return (
+                                  <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3">
+                                    <p className="font-semibold text-slate-800 mb-2">{label}</p>
+                                    <div className="space-y-1">
+                                      <div className="flex items-center justify-between text-sm">
+                                        <div className="flex items-center space-x-2">
+                                          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                                          <span className="text-slate-600">Positive</span>
                       </div>
-                      <div className="mt-4 flex justify-center space-x-8">
-                        {formResults.completion_funnel.map((item: any) => (
-                          <div key={item.question} className="text-center">
-                            <div className="text-lg font-semibold text-slate-800">{item.responses}</div>
-                            <div className="text-sm text-slate-600">{item.question}</div>
-                            <div className="text-xs text-slate-500">{item.percentage}%</div>
+                                        <span className="font-medium">{data.positive} ({total > 0 ? Math.round((data.positive / total) * 100) : 0}%)</span>
                           </div>
-                        ))}
+                                      <div className="flex items-center justify-between text-sm">
+                                        <div className="flex items-center space-x-2">
+                                          <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+                                          <span className="text-slate-600">Neutral</span>
                       </div>
-                    </>
-                  ) : (
-                    <div className="h-64 flex items-center justify-center">
-                      <div className="text-slate-500">No completion data available</div>
+                                        <span className="font-medium">{data.neutral} ({total > 0 ? Math.round((data.neutral / total) * 100) : 0}%)</span>
+                                      </div>
+                                      <div className="flex items-center justify-between text-sm">
+                                        <div className="flex items-center space-x-2">
+                                          <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                                          <span className="text-slate-600">Negative</span>
+                                        </div>
+                                        <span className="font-medium">{data.negative} ({total > 0 ? Math.round((data.negative / total) * 100) : 0}%)</span>
+                                      </div>
+                                      <div className="border-t border-slate-200 pt-1 mt-2">
+                                        <div className="flex items-center justify-between text-sm font-semibold">
+                                          <span className="text-slate-700">Total</span>
+                                          <span className="text-slate-800">{total}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <ChartLegend content={<ChartLegendContent />} />
+                          <Bar dataKey="positive" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={40} />
+                          <Bar dataKey="neutral" stackId="a" fill="#6b7280" radius={[0, 0, 0, 0]} maxBarSize={40} />
+                          <Bar dataKey="negative" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                        </BarChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-80 text-slate-500">
+                        <div className="text-center">
+                          <MessageSquare className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                          <p>No language-sentiment data available</p>
+                        </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
+              </div>
 
               {/* Question-wise Response Breakdown */}
               <Card className="border border-slate-400 shadow-none rounded-lg">
@@ -688,43 +1039,45 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                   <CardDescription>Response distribution for each question</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {mockResults.questionBreakdown.map((question, index) => (
-                      <div key={index}>
-                        <h4 className="font-medium text-slate-800 mb-4">{question.question}</h4>
-                        <div className="h-48">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={question.data}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={40}
-                                outerRadius={80}
-                                paddingAngle={2}
-                                dataKey="value"
-                              >
-                                {question.data.map((entry, idx) => (
-                                  <Cell key={`cell-${idx}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(value) => [`${value}%`, "Responses"]} />
-                            </PieChart>
-                          </ResponsiveContainer>
+                  {formResults?.question_breakdown?.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-200">
+                            <th className="text-left py-3 px-4 font-medium text-slate-700">Question</th>
+                            <th className="text-center py-3 px-4 font-medium text-slate-700">Responses</th>
+                            <th className="text-center py-3 px-4 font-medium text-slate-700">Completion</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {formResults.question_breakdown.map((question: any, index: number) => (
+                            <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="py-3 px-4">
+                                <div className="font-medium text-slate-800">Q{index + 1}</div>
+                                <div className="text-sm text-slate-600 mt-1 max-w-md">
+                                  {question.question_text.length > 60 
+                                    ? question.question_text.substring(0, 60) + "..." 
+                                    : question.question_text
+                                  }
                         </div>
-                        <div className="grid grid-cols-2 gap-2 mt-2">
-                          {question.data.map((item) => (
-                            <div key={item.category} className="flex items-center space-x-2">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                              <span className="text-xs text-slate-600">
-                                {item.category}: {item.value}%
-                              </span>
-                            </div>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <div className="text-lg font-semibold text-slate-800">{question.response_count}</div>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <div className="text-sm font-medium text-slate-600">{question.percentage}%</div>
+                              </td>
+                            </tr>
                           ))}
+                        </tbody>
+                      </table>
                         </div>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500">
+                      <MessageSquare className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                      <p>No question breakdown data available</p>
                       </div>
-                    ))}
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -745,51 +1098,139 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                           </div>
                         ))}
                       </div>
-                      {mockResults.responseHeatmap.map((day) => (
-                        <div key={day.day} className="grid grid-cols-5 gap-1 mb-1">
+                      {(() => {
+                        // Generate heatmap data from actual form responses
+                        const generateHeatmapData = () => {
+                          const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                          const times = ['morning', 'afternoon', 'evening', 'night'];
+                          
+                          // Initialize the heatmap data structure
+                          const heatmapData = days.map(day => ({
+                            day,
+                            timeData: times.map(time => ({ time, value: 0, color: '' }))
+                          }));
+                          
+                          // Process actual form responses
+                          if (allFormResponses && allFormResponses.length > 0) {
+                            console.log('Form responses for heatmap:', allFormResponses.slice(0, 2)); // Debug log
+                            allFormResponses.forEach((user: any) => {
+                              if (user.start_timestamp) {
+                                const responseDate = new Date(user.start_timestamp);
+                                const dayOfWeek = responseDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                                const hour = responseDate.getHours();
+                                
+                                // Convert to our day format (Monday = 0, Sunday = 6)
+                                const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                                
+                                // Determine time period
+                                let timeIndex = 0; // morning
+                                if (hour >= 6 && hour < 12) timeIndex = 0; // morning (6-11)
+                                else if (hour >= 12 && hour < 17) timeIndex = 1; // afternoon (12-16)
+                                else if (hour >= 17 && hour < 21) timeIndex = 2; // evening (17-20)
+                                else timeIndex = 3; // night (21-5)
+                                
+                                // Increment the count
+                                if (dayIndex >= 0 && dayIndex < 7 && timeIndex >= 0 && timeIndex < 4) {
+                                  heatmapData[dayIndex].timeData[timeIndex].value++;
+                                }
+                              }
+                            });
+                          }
+                          
+                          // Add colors to the data
+                          heatmapData.forEach(dayData => {
+                            dayData.timeData.forEach(timeData => {
+                              timeData.color = getHeatmapColor(timeData.value);
+                            });
+                          });
+                          
+                          return heatmapData;
+                        };
+
+                        const heatmapData = generateHeatmapData();
+
+                        return heatmapData.map((dayData, dayIndex) => (
+                          <div key={dayData.day} className="grid grid-cols-5 gap-1 mb-1">
                           <div className="text-xs font-medium text-slate-600 flex items-center">
-                            {day.day}
+                              {dayData.day}
                           </div>
-                          <div 
-                            className="h-8 rounded flex items-center justify-center text-xs font-medium text-white"
-                            style={{ backgroundColor: getHeatmapColor(day.morning) }}
-                          >
-                            {day.morning}
-                          </div>
-                          <div 
-                            className="h-8 rounded flex items-center justify-center text-xs font-medium text-white"
-                            style={{ backgroundColor: getHeatmapColor(day.afternoon) }}
-                          >
-                            {day.afternoon}
-                          </div>
-                          <div 
-                            className="h-8 rounded flex items-center justify-center text-xs font-medium text-white"
-                            style={{ backgroundColor: getHeatmapColor(day.evening) }}
-                          >
-                            {day.evening}
-                          </div>
-                          <div 
-                            className="h-8 rounded flex items-center justify-center text-xs font-medium text-white"
-                            style={{ backgroundColor: getHeatmapColor(day.night) }}
-                          >
-                            {day.night}
-                          </div>
+                            {dayData.timeData.map((timeData, timeIndex) => (
+                              <div 
+                                key={`${dayData.day}-${timeData.time}`}
+                                className="h-8 rounded flex items-center justify-center text-xs font-medium text-white cursor-pointer hover:opacity-80 transition-opacity"
+                                style={{ backgroundColor: timeData.color }}
+                                title={`${dayData.day} ${timeData.time}: ${timeData.value} responses`}
+                              >
+                                {timeData.value > 0 ? timeData.value : ''}
                         </div>
                       ))}
                     </div>
+                        ));
+                      })()}
+                    </div>
+                    {(() => {
+                      const heatmapData = (() => {
+                        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        const times = ['morning', 'afternoon', 'evening', 'night'];
+                        
+                        const heatmapData = days.map(day => ({
+                          day,
+                          timeData: times.map(time => ({ time, value: 0, color: '' }))
+                        }));
+                        
+                        if (allFormResponses && allFormResponses.length > 0) {
+                          allFormResponses.forEach((user: any) => {
+                            if (user.start_timestamp) {
+                              const responseDate = new Date(user.start_timestamp);
+                              const dayOfWeek = responseDate.getDay();
+                              const hour = responseDate.getHours();
+                              
+                              const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                              
+                              let timeIndex = 0;
+                              if (hour >= 6 && hour < 12) timeIndex = 0;
+                              else if (hour >= 12 && hour < 17) timeIndex = 1;
+                              else if (hour >= 17 && hour < 21) timeIndex = 2;
+                              else timeIndex = 3;
+                              
+                              if (dayIndex >= 0 && dayIndex < 7 && timeIndex >= 0 && timeIndex < 4) {
+                                heatmapData[dayIndex].timeData[timeIndex].value++;
+                              }
+                            }
+                          });
+                        }
+                        
+                        return heatmapData;
+                      })();
+                      
+                      const maxValue = Math.max(...heatmapData.flatMap(d => d.timeData.map(t => t.value)));
+                      let legendValues = maxValue > 0 ? [0, Math.ceil(maxValue * 0.25), Math.ceil(maxValue * 0.5), Math.ceil(maxValue * 0.75), maxValue] : [0, 1, 2, 3, 4];
+                      
+                      // Ensure unique values for keys
+                      legendValues = [...new Set(legendValues)].sort((a, b) => a - b);
+                      
+                      // Fallback if we don't have enough unique values
+                      if (legendValues.length < 3) {
+                        legendValues = [0, 1, 2, 3, 4];
+                      }
+                      
+                      return (
                     <div className="flex items-center justify-center mt-4 space-x-2">
                       <span className="text-xs text-slate-600">Less</span>
                       <div className="flex space-x-1">
-                        {[0.2, 0.4, 0.6, 0.8, 1].map(opacity => (
+                            {legendValues.map(value => (
                           <div 
-                            key={opacity}
+                                key={value}
                             className="w-3 h-3 rounded"
-                            style={{ backgroundColor: `rgba(139, 92, 246, ${opacity})` }}
+                                style={{ backgroundColor: getHeatmapColor(value) }}
+                                title={`${value} responses`}
                           />
                         ))}
                       </div>
                       <span className="text-xs text-slate-600">More</span>
                     </div>
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -797,21 +1238,8 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
 
             {/* Tab 2: Individual Responses */}
             <TabsContent value="individual" className="space-y-6">
-              {/* Filters */}
-              <Card className="border border-slate-400 shadow-none rounded-lg">
-                <CardContent className="p-6">
-                  <div className="flex flex-col md:flex-row gap-4">
-                    <div className="flex-1">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <Input
-                          placeholder="Search keywords in responses..."
-                          value={searchKeyword}
-                          onChange={(e) => setSearchKeyword(e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
-                    </div>
+              {/* Question Filter - allows users to view specific questions */}
+              <div className="flex justify-end">
                     <div className="w-full md:w-64">
                       <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
                         <SelectTrigger>
@@ -828,8 +1256,6 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                       </Select>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
 
               {/* Individual Response Cards */}
               <div className="space-y-6">
@@ -837,20 +1263,33 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                   <div className="text-center py-8">
                     <div className="text-slate-500">Loading responses...</div>
                   </div>
-                ) : formResponses.length > 0 ? (
-                  formResponses.map((user) => (
+                ) : paginatedResponses.length > 0 ? (
+                  paginatedResponses.map((user) => (
                     <Card key={user.response_id} className="border border-slate-400 shadow-none rounded-lg">
                       <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
                         <CardTitle className="text-lg">{user.user_id}</CardTitle>
                         <CardDescription>{user.responses.length} responses</CardDescription>
+                          </div>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
                           {user.responses.map((response: any, index: number) => (
                             <div key={index} className="border border-slate-400 rounded-lg p-4">
                               <div className="mb-3">
-                                <h4 className="font-400 text-slate-800 mb-2">{response.question_text}</h4>
-                                <div className="flex w-1/2 items-center space-x-3 mb-3 mt-3">
+                                <div className="flex items-start gap-3 mb-2">
+                                  {/* Question Number Box - shows the question number */}
+                                  <div className="flex-shrink-0 w-8 h-8 bg-purple-100 border border-purple-200 rounded-lg flex items-center justify-center">
+                                    <span className="text-sm font-semibold text-purple-700">
+                                      #{index + 1}
+                                    </span>
+                                  </div>
+                                  {/* Question Text - shows the actual question */}
+                                  <h4 className="font-400 text-slate-800 flex-1">{response.question_text}</h4>
+                                </div>
+                                <div className="flex items-center space-x-3 mb-3 mt-3">
                                   {response.voice_file ? (
                                     <AudioPlayer
                                       src={response.voice_file}
@@ -866,6 +1305,8 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                                       <Mic className="w-3 h-3 text-slate-400" />
                                     </div>
                                   )}
+                                  
+                                  {/* Sentiment Badge - shows the sentiment of the response */}
                                   <Badge
                                     variant={response.sentiment === "positive" ? "default" : response.sentiment === "negative" ? "destructive" : "secondary"}
                                     className={
@@ -878,11 +1319,93 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
                                   >
                                     {response.sentiment}
                                   </Badge>
-                                  <span className="text-sm text-slate-500">{response.duration}</span>
+                                  
+                                  {/* Language Tag - shows the language of the response */}
+                                  {response.language && response.language !== "en" && (
+                                    <div className="flex items-center space-x-1">
+                                      <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                                      <span className="text-xs font-medium text-orange-700">
+                                        {getLanguageName(response.language)}
+                                      </span>
                                 </div>
+                                  )}
+                                  
+                                  {/* Category Tags - shows specific categories for each question */}
+                                  {response.categories && response.categories.length > 0 && (
+                                    <>
+                                      {response.categories.map((category: any, catIndex: number) => {
+                                        // Different colors for different categories
+                                        const colorClasses = [
+                                          "bg-blue-100 text-blue-800",      // Blue
+                                          "bg-green-100 text-green-800",    // Green
+                                          "bg-purple-100 text-purple-800",  // Purple
+                                          "bg-orange-100 text-orange-800",  // Orange
+                                          "bg-pink-100 text-pink-800",      // Pink
+                                          "bg-indigo-100 text-indigo-800",  // Indigo
+                                          "bg-teal-100 text-teal-800",      // Teal
+                                          "bg-red-100 text-red-800",        // Red
+                                          "bg-yellow-100 text-yellow-800",  // Yellow
+                                          "bg-cyan-100 text-cyan-800"       // Cyan
+                                        ];
+                                        
+                                        const colorClass = colorClasses[catIndex % colorClasses.length];
+                                        
+                                        return (
+                                          <span
+                                            key={catIndex}
+                                            className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${colorClass}`}
+                                          >
+                                            {category.name}
+                                          </span>
+                                        );
+                                      })}
+                                    </>
+                                  )}
                               </div>
-                              <div className="bg-white rounded-lg p-3 border border-slate-400">
+                                
+                              </div>
+                              <div className="space-y-3">
+                                {/* Text Response - only show if user typed something */}
+                                {response.transcript && response.transcript !== "No text response" && (
+                                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
+                                      <span className="text-xs font-medium text-slate-600">Text Response</span>
+                                    </div>
                                 <p className="text-sm text-slate-700 italic">"{response.transcript}"</p>
+                                  </div>
+                                )}
+                                
+                                {/* AI Transcription - always show if available */}
+                                {response.transcribed_text && response.transcribed_text !== "No AI transcription available" && (
+                                  <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                      <span className="text-xs font-medium text-purple-700">AI Transcription</span>
+                                    </div>
+                                    <p className="text-sm text-purple-800 font-medium">"{response.transcribed_text}"</p>
+                                  </div>
+                                )}
+                                
+                                {/* Translated Text - show if available */}
+                                {response.translated_text && (
+                                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                      <span className="text-xs font-medium text-blue-700">English Translation</span>
+                                    </div>
+                                    <p className="text-sm text-blue-800 font-medium">"{response.translated_text}"</p>
+                                  </div>
+                                )}
+                                
+                                
+                                {/* Show message if no text or transcription available */}
+                                {(!response.transcript || response.transcript === "No text response") && 
+                                 (!response.transcribed_text || response.transcribed_text === "No AI transcription available") && (
+                                  <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                    <p className="text-sm text-gray-500 italic">No text response or transcription available</p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))}

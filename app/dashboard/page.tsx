@@ -45,6 +45,7 @@ export default function DashboardPage() {
                 completion_rate: data.completion_rate || 0,
                 avg_response_time: data.avg_response_time || 0,
             });
+            
         }).finally(() => setLoading(false));
     }, []);
 
@@ -215,6 +216,7 @@ export default function DashboardPage() {
                             </CardContent>
                         </Card>
                     </div>
+
 
                     {/* Forms Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

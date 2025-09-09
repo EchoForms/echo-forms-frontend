@@ -51,6 +51,16 @@ export async function fetchFormById(formId: number) {
   return res.data;
 }
 
+export async function fetchFormAnalytics(formId: number) {
+  const response = await api.get(`/form-analytics/form/${formId}`);
+  return response.data;
+}
+
+export async function fetchFormAnalyticsSummary(formId: number) {
+  const response = await api.get(`/form-analytics/form/${formId}/summary`);
+  return response.data;
+}
+
 export async function createForm(data: { title: string; description?: string; language?: string; status?: string; fields?: FormFieldPayload[] }) {
   const res = await api.post('/forms/', data);
   return res.data;
