@@ -31,12 +31,12 @@ export default function PublicFormPage({ params }: { params: any }) {
   const [canPlayback, setCanPlayback] = useState(false)
   
   // Helper function to format duration in seconds to MM:SS
-  const formatDuration = (seconds: number) => {
+  const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-  
+
   const recorderControls = useVoiceVisualizer({
     onEndAudioPlayback: () => {
       setIsPlaying(false);
@@ -76,7 +76,9 @@ export default function PublicFormPage({ params }: { params: any }) {
     }
   }
 
+
   const handleClearRecording = () => {
+    
     recorderControls.clearCanvas();
     setCanPlayback(false);
     setIsRecording(false);
@@ -84,24 +86,25 @@ export default function PublicFormPage({ params }: { params: any }) {
     setRecordingDuration(0);
   }
 
+  // Auto-stop recording at 60 seconds
   useEffect(() => {
-    if (recorderControls.recordedBlob) {
-      setRecordingDuration(recorderControls.duration);
+    if (isRecording && recorderControls.recordingTime !== undefined) {
+      const currentTime = recorderControls.recordingTime / 1000; // Convert milliseconds to seconds
+      
+      // Auto-stop recording at exactly 60 seconds
+      if (currentTime >= 60) {
+        console.log("Auto-stopping recording at 60 seconds");
+        recorderControls.stopRecording();
+        setIsRecording(false);
+      }
     }
-  }, [recorderControls.recordedBlob]);
+  }, [isRecording, recorderControls.recordingTime, recorderControls]);
 
-  // Update duration during recording
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRecording) {
-      interval = setInterval(() => {
-        setRecordingDuration(recorderControls.duration);
-      }, 100); // Update every 100ms for smooth display
+    if (recorderControls.recordingTime) { 
+      setRecordingDuration(recorderControls.recordingTime / 1000 || 0);
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRecording, recorderControls.duration]);
+  }, [recorderControls.recordingTime, recorderControls.recordedBlob]); 
 
   useEffect(() => {
     fetchFormByUniqueId(id)
@@ -211,6 +214,7 @@ export default function PublicFormPage({ params }: { params: any }) {
             file,
             responseTime: recorderControls.duration
           });
+          
           recorderControls.clearCanvas();
         } catch (err) {
           console.error("Multipart API call failed", err);
@@ -249,7 +253,6 @@ export default function PublicFormPage({ params }: { params: any }) {
 
   const handlePrevious = () => {
     if (currentQuestion > 0) {
-      // Clear recording when going to previous question
       recorderControls.clearCanvas();
       setCanPlayback(false);
       setIsRecording(false);
@@ -259,6 +262,7 @@ export default function PublicFormPage({ params }: { params: any }) {
       setCurrentQuestion(currentQuestion - 1)
     }
   }
+
 
   const canProceed = questions[currentQuestion]?.required 
     ? (textResponses[questions[currentQuestion].id] || recorderControls.recordedBlob)
@@ -357,12 +361,23 @@ export default function PublicFormPage({ params }: { params: any }) {
                     />
                   </div>
 
-                <p className="text-sm text-slate-600 font-medium">
+                <p className={`text-sm font-medium ${
+                  isRecording && recordingDuration >= 50 
+                    ? "text-red-600 animate-pulse" 
+                    : "text-slate-600"
+                }`}>
                   {isRecording 
-                    ? (recorderControls.formattedRecordingTime || formatDuration(recordingDuration))
-                    : (recorderControls.formattedRecordedAudioCurrentTime || formatDuration(recordingDuration))
+                    ? recorderControls.formattedRecordingTime
+                    : (recorderControls.recordedBlob ? recorderControls.formattedRecordedAudioCurrentTime : "00:00")
                   }
+                  {isRecording && recordingDuration >= 50 && (
+                    <span className="ml-2 text-xs">
+                      (Max: 60s)
+                    </span>
+                  )}
                 </p>
+                
+                
                 <div className="mb-8 flex flex-row justify-center items-center gap-6">
                   {/* Pause/Resume Button - Always show but conditionally style */}
                   <button 
@@ -400,7 +415,9 @@ export default function PublicFormPage({ params }: { params: any }) {
                       disabled={isLoading}
                       className={`w-20 h-20 rounded-full flex justify-center items-center transition-all duration-200 ${
                         isRecording
-                          ? "bg-red-500 hover:bg-red-600 animate-pulse" 
+                          ? recordingDuration >= 50 
+                            ? "bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-300" 
+                            : "bg-red-500 hover:bg-red-600 animate-pulse"
                           : "bg-purple-500 hover:bg-purple-600"
                       } shadow-lg hover:shadow-xl cursor-pointer`}
                     >

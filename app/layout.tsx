@@ -1,5 +1,6 @@
 import './globals.css'
 import { Poppins } from 'next/font/google'
+import GoogleAnalytics from '@/components/GoogleAnalytics'
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -10,6 +11,9 @@ const poppins = Poppins({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <GoogleAnalytics />
+      </head>
       <body className={poppins.className}>
         {children}
       </body>
