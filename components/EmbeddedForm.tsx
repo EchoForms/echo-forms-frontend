@@ -24,9 +24,10 @@ export default function EmbeddedForm({ formId, baseUrl }: EmbeddedFormProps) {
   const getBaseUrl = () => {
     if (baseUrl) return baseUrl
     if (typeof window !== "undefined") {
-      return `${window.location.protocol}//${window.location.host}`
+      // Use the production URL for the form
+      return "https://echoforms.netlify.app"
     }
-    return "http://localhost:3000"
+    return "https://echoforms.netlify.app"
   }
 
   const formUrl = `${getBaseUrl()}/forms/${formId}`
