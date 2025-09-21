@@ -174,10 +174,7 @@ export default function LandingPage() {
                 </div>
               </Button>
             </Link>
-            
-            
           </div>
-
           {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto">
             <div className="text-center">
@@ -192,6 +189,32 @@ export default function LandingPage() {
               <div className="text-3xl font-bold text-green-600 mb-2">50+</div>
               <div className="text-slate-600">Languages</div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Voice Survey Section (Feedback Form) - moved up */}
+      <section className="relative py-24 px-4 bg-gradient-to-b from-white to-slate-50">
+        <div className="container mx-auto max-w-4xl">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-100 to-blue-100 px-4 py-2 rounded-full mb-6 border border-purple-200/50">
+              <Mic className="w-4 h-4 text-purple-600" />
+              <span className="text-sm font-medium text-purple-700">Try Our Voice Survey</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-slate-800 mb-6">Experience Voice Surveys</h2>
+            <p className="text-xl text-slate-600">Give us your feedback using your voice - it's faster, more natural, and more engaging!</p>
+          </div>
+
+          <div 
+            onMouseEnter={() => {
+              event({
+                action: 'voice_survey_section_viewed',
+                category: 'landing_page',
+                label: 'demo_section'
+              });
+            }}
+          >
+            <EmbeddedForm formId="kCF1CMqPRtx5" />
           </div>
         </div>
       </section>
